@@ -1,0 +1,140 @@
+-- Flyway V1 Migration Schema for HOSPITAL FLOW AI
+
+CREATE TABLE IF NOT EXISTS departments (
+    id VARCHAR(64) PRIMARY KEY,
+    code VARCHAR(32) NOT NULL UNIQUE,
+    name VARCHAR(128) NOT NULL,
+    total_beds INT NOT NULL DEFAULT 0,
+    active_staff INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS beds (
+    id VARCHAR(64) PRIMARY KEY,
+    bed_number VARCHAR(32) NOT NULL UNIQUE,
+    department_code VARCHAR(32) NOT NULL REFERENCES departments(code),
+    bed_type VARCHAR(32) NOT NULL, -- ICU, WARD, ER
+    status VARCHAR(32) NOT NULL DEFAULT 'AVAILABLE', -- AVAILABLE, OCCUPIED, CLEANING, RESERVED, MAINTENANCE
+    current_patient_id VARCHAR(64),
+    estimated_available_mins INT DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS patients (
+    id VARCHAR(64) PRIMARY KEY,
+    patient_code VARCHAR(32) NOT NULL UNIQUE,
+    age INT NOT NULL,
+    gender VARCHAR(16) NOT NULL,
+    severity VARCHAR(32) NOT NULL, -- CRITICAL, HIGH, MODERATE, LOW
+    vitals_status VARCHAR(32) NOT NULL, -- STABLE, UNSTABLE, GUARDED
+    required_care_level VARCHAR(32) NOT NULL, -- ICU, MONITORED_WARD, WARD, ER_OBSERVATION
+    physician_clearance BOOLEAN NOT NULL DEFAULT FALSE,
+    status VARCHAR(32) NOT NULL, -- ER_WAITING, ADMITTED_ICU, ADMITTED_WARD, TRANSFER_PENDING, DISCHARGE_PENDING, DISCHARGED
+    assigned_bed_id VARCHAR(64) REFERENCES beds(id),
+    arrival_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS staff (
+    id VARCHAR(64) PRIMARY KEY,
+    staff_code VARCHAR(32) NOT NULL UNIQUE,
+    name VARCHAR(128) NOT NULL,
+    role VARCHAR(32) NOT NULL, -- DOCTOR, NURSE, CLEANER
+    department_code VARCHAR(32) NOT NULL REFERENCES departments(code),
+    shift VARCHAR(16) NOT NULL DEFAULT 'DAY', -- DAY, NIGHT
+    status VARCHAR(32) NOT NULL DEFAULT 'AVAILABLE', -- AVAILABLE, ON_DUTY, OVERLOADED, OFF_DUTY
+    workload_score INT NOT NULL DEFAULT 50
+);
+
+CREATE TABLE IF NOT EXISTS cleaning_tasks (
+    id VARCHAR(64) PRIMARY KEY,
+    bed_id VARCHAR(64) NOT NULL REFERENCES beds(id),
+    cleaner_id VARCHAR(64) REFERENCES staff(id),
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING', -- PENDING, IN_PROGRESS, COMPLETED
+    est_completion_mins INT DEFAULT 15,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS hospital_events (
+    id VARCHAR(64) PRIMARY KEY,
+    event_type VARCHAR(64) NOT NULL, -- SURGE_PATIENTS, ICU_CAPACITY_ALERT, STAFF_SHORTAGE, REJECTION_EVENT
+    payload_json TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id VARCHAR(64) PRIMARY KEY,
+    event_id VARCHAR(64) REFERENCES hospital_events(id),
+    workflow_status VARCHAR(32) NOT NULL, -- THINKING, PLAN_GENERATED, WAITING_APPROVAL, EXECUTED, REPLANNING
+    started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS agent_findings (
+    id VARCHAR(64) PRIMARY KEY,
+    agent_run_id VARCHAR(64) REFERENCES agent_runs(id),
+    agent_name VARCHAR(64) NOT NULL,
+    finding_type VARCHAR(64) NOT NULL,
+    summary TEXT NOT NULL,
+    confidence_score DOUBLE PRECISION DEFAULT 0.95,
+    raw_details_json TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS recommendations (
+    id VARCHAR(64) PRIMARY KEY,
+    agent_run_id VARCHAR(64) REFERENCES agent_runs(id),
+    action_type VARCHAR(64) NOT NULL, -- TRANSFER_PATIENT, RESERVE_BED, REASSIGN_STAFF, FLAG_DISCHARGE, EXPEDITE_CLEANING, OVERRIDE_CAPACITY
+    target_entity_id VARCHAR(64) NOT NULL,
+    target_entity_code VARCHAR(64) NOT NULL,
+    target_location VARCHAR(64),
+    reason TEXT NOT NULL,
+    expected_benefit TEXT NOT NULL,
+    risk_level VARCHAR(32) NOT NULL, -- LOW, MEDIUM, HIGH
+    status VARCHAR(32) NOT NULL DEFAULT 'PROPOSED' -- PROPOSED, APPROVED, REJECTED, EXECUTED
+);
+
+CREATE TABLE IF NOT EXISTS approval_requests (
+    id VARCHAR(64) PRIMARY KEY,
+    recommendation_id VARCHAR(64) NOT NULL REFERENCES recommendations(id),
+    risk_level VARCHAR(32) NOT NULL,
+    required_role VARCHAR(32) NOT NULL, -- DOCTOR, NURSE_MANAGER, HOSPITAL_MANAGER
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING', -- PENDING, APPROVED, REJECTED
+    rejection_reason TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS approval_actions (
+    id VARCHAR(64) PRIMARY KEY,
+    approval_request_id VARCHAR(64) NOT NULL REFERENCES approval_requests(id),
+    action_by VARCHAR(128) NOT NULL,
+    role VARCHAR(32) NOT NULL,
+    decision VARCHAR(32) NOT NULL, -- APPROVED, REJECTED, MODIFIED
+    reason TEXT,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id VARCHAR(64) PRIMARY KEY,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actor VARCHAR(64) NOT NULL,
+    event_name VARCHAR(64) NOT NULL,
+    input_ref VARCHAR(128),
+    decision VARCHAR(64),
+    execution_result_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS predictions (
+    id VARCHAR(64) PRIMARY KEY,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    timeframe_minutes INT NOT NULL,
+    metric_name VARCHAR(64) NOT NULL,
+    predicted_value DOUBLE PRECISION NOT NULL,
+    confidence_interval VARCHAR(64)
+);
+
+CREATE TABLE IF NOT EXISTS simulation_runs (
+    id VARCHAR(64) PRIMARY KEY,
+    scenario_name VARCHAR(128) NOT NULL,
+    parameters_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
